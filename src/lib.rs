@@ -45,7 +45,6 @@ pub mod future;
 pub mod int;
 
 use core::fmt;
-use core::ops::ControlFlow;
 
 /// Represents types responsible for decoding bytes pushed into it.
 ///
@@ -131,74 +130,6 @@ pub trait Decoder: Sized {
         Self: Default,
     {
         core::mem::take(self).end()
-    }
-
-    /// Decodes a value from lower-level decoder.
-    ///
-    /// When multiple decoders are chained one after another in a large state machine this method
-    /// can simplify delegation of decoding to the underlying decoder. You can wrap decoding in a
-    /// closure passed to [`Self::wrap_sub_decode`] and then just call `sub_decode()?` at the
-    /// beginning of each decoding state and continue working with the returned value.
-    ///
-    /// The method also accepts a function (closure) to convert the errors since using `map_err`
-    /// would be annoying because of double wrapping. In case no conversion is desired simply pass
-    /// in [`core::convert::identity`].
-    ///
-    /// Note that this requires the `Default` trait because it resets the decoder every time a
-    /// value is decoded. Apart from this resolving borrowing issues it also allows easily decoding
-    /// a stream of value in a loop. If you need to work with decoders that require a value (e.g.
-    /// [`VecDecoder`](decoders::VecDecoder)) it is recommended to create a specialized decoder that
-    /// will decode both (e.g. using [`Then`](decoders::combinators::then)) and call sub_deode on
-    /// that.
-    ///
-    /// You may notice this looks a lot like `await` and in principle it is very similar. The
-    /// differences are:
-    ///
-    /// * `await` also implements the state machine using `Future` trait. This doesn't. The
-    ///   `Future::poll` method would have to have another argument for us to be able to use it.
-    /// * This returns `ControlFlow` instead of `Poll<Result>` to make it return in case of "not
-    ///   ready" as well. The `Try` implementation on `Poll` only returns on `Err`, never on
-    ///   `Pending`. This is important for ergonomics.
-    /// * While it could be argued the type is morally `Poll<Error>` this one doesn't implement
-    ///   `Try` either so it's unsuitable for the purpose.
-    fn sub_decode<E, F: FnMut(Self::Error) -> E>(
-        &mut self,
-        bytes: &mut &[u8],
-        mut map_err: F,
-    ) -> ControlFlow<Result<(), E>, Self::Value>
-    where
-        Self: Default,
-    {
-        if let Err(error) = self.decode_chunk(bytes) {
-            return ControlFlow::Break(Err(map_err(error)));
-        }
-        if bytes.is_empty() {
-            ControlFlow::Break(Ok(()))
-        } else {
-            match self.take() {
-                Ok(value) => ControlFlow::Continue(value),
-                Err(error) => ControlFlow::Break(Err(map_err(error))),
-            }
-        }
-    }
-
-    /// Helper for using sub_decode.
-    ///
-    /// This can be used together with [`sub_decode`](Self::sub_decode) on sub-decoders to make
-    /// decoding easier. It helps with type inference and converts `ControlFlow` into `Result`.
-    ///
-    /// Note that this doesn't allow returning `ControlFlow::Continue` as that wouldn't make sense.
-    /// It is recommended to just return `ControlFlow::Break` with the result returned from
-    /// `decode_chunk` of the last decoder.
-    fn wrap_sub_decode<
-        F: FnOnce() -> ControlFlow<Result<(), Self::Error>, core::convert::Infallible>,
-    >(
-        f: F,
-    ) -> Result<(), Self::Error> {
-        match f() {
-            ControlFlow::Continue(never) => match never {},
-            ControlFlow::Break(result) => result,
-        }
     }
 }
 
