@@ -32,18 +32,17 @@ extern crate alloc;
 #[cfg(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
 use core::pin::Pin;
 
-#[cfg(feature = "tokio")]
-use actual_tokio as tokio;
 #[cfg(feature = "async-std")]
 use actual_async_std as async_std;
+#[cfg(feature = "tokio")]
+use actual_tokio as tokio;
 
 pub mod decoders;
 pub mod encoders;
 pub mod error;
-pub mod int;
 #[cfg(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
 pub mod future;
-mod macros;
+pub mod int;
 
 use core::fmt;
 use core::ops::ControlFlow;
@@ -99,7 +98,10 @@ pub trait Decoder: Sized {
 
     /// Chains another decoder after this one finishes such that the value of this one is used to
     /// initialize the next one.
-    fn then<R: Decoder, F: FnOnce(Self::Value) -> R>(self, fun: F) -> decoders::combinators::Then<Self, R, F> {
+    fn then<R: Decoder, F: FnOnce(Self::Value) -> R>(
+        self,
+        fun: F,
+    ) -> decoders::combinators::Then<Self, R, F> {
         decoders::combinators::Then::new(self, fun)
     }
 
@@ -108,7 +110,13 @@ pub trait Decoder: Sized {
     ///
     /// Unlike `then` this combinator may also return an error and convert the errors into a custom
     /// one.
-    fn then_try<E, R: Decoder, F: FnOnce(Self::Value) -> Result<R, E>>(self, fun: F) -> decoders::combinators::ThenTry<E, Self, R, F> where E: From<Self::Error> + From<R::Error> {
+    fn then_try<E, R: Decoder, F: FnOnce(Self::Value) -> Result<R, E>>(
+        self,
+        fun: F,
+    ) -> decoders::combinators::ThenTry<E, Self, R, F>
+    where
+        E: From<Self::Error> + From<R::Error>,
+    {
         decoders::combinators::ThenTry::new(self, fun)
     }
 
@@ -118,7 +126,10 @@ pub trait Decoder: Sized {
     }
 
     /// Resets the decoder returning the decoded value.
-    fn take(&mut self) -> Result<Self::Value, Self::Error> where Self: Default {
+    fn take(&mut self) -> Result<Self::Value, Self::Error>
+    where
+        Self: Default,
+    {
         core::mem::take(self).end()
     }
 
@@ -150,7 +161,14 @@ pub trait Decoder: Sized {
     ///   `Pending`. This is important for ergonomics.
     /// * While it could be argued the type is morally `Poll<Error>` this one doesn't implement
     ///   `Try` either so it's unsuitable for the purpose.
-    fn sub_decode<E, F: FnMut(Self::Error) -> E>(&mut self, bytes: &mut &[u8], mut map_err: F) -> ControlFlow<Result<(), E>, Self::Value> where Self: Default {
+    fn sub_decode<E, F: FnMut(Self::Error) -> E>(
+        &mut self,
+        bytes: &mut &[u8],
+        mut map_err: F,
+    ) -> ControlFlow<Result<(), E>, Self::Value>
+    where
+        Self: Default,
+    {
         if let Err(error) = self.decode_chunk(bytes) {
             return ControlFlow::Break(Err(map_err(error)));
         }
@@ -172,7 +190,11 @@ pub trait Decoder: Sized {
     /// Note that this doesn't allow returning `ControlFlow::Continue` as that wouldn't make sense.
     /// It is recommended to just return `ControlFlow::Break` with the result returned from
     /// `decode_chunk` of the last decoder.
-    fn wrap_sub_decode<F: FnOnce() -> ControlFlow<Result<(), Self::Error>, core::convert::Infallible>>(f: F) -> Result<(), Self::Error> {
+    fn wrap_sub_decode<
+        F: FnOnce() -> ControlFlow<Result<(), Self::Error>, core::convert::Infallible>,
+    >(
+        f: F,
+    ) -> Result<(), Self::Error> {
         match f() {
             ControlFlow::Continue(never) => match never {},
             ControlFlow::Break(result) => result,
@@ -217,7 +239,14 @@ pub trait KnownMinLenDecoder: Decoder {
     /// The `BUF_LEN` specifies the length of the buffer to use. In general people tend to use
     /// vales of a few kB (e.g. 4096) but if you know the maximum length of decoded chunk for
     /// specific decoder you should pick that one.
-    fn sync_decode_with_zeroed_buffer<const BUF_LEN: usize, E, F: FnMut(&mut [u8]) -> Result<usize, E>>(mut self, mut reader: F) -> Result<Self::Value, ReadError<Self::Error, E>> {
+    fn sync_decode_with_zeroed_buffer<
+        const BUF_LEN: usize,
+        E,
+        F: FnMut(&mut [u8]) -> Result<usize, E>,
+    >(
+        mut self,
+        mut reader: F,
+    ) -> Result<Self::Value, ReadError<Self::Error, E>> {
         let mut buf = [0u8; BUF_LEN];
         while !self.is_at_end() {
             let buf = self.clamp_buffer(&mut buf);
@@ -225,7 +254,8 @@ pub trait KnownMinLenDecoder: Decoder {
             if bytes_read == 0 {
                 break;
             }
-            self.bytes_received(&buf[..bytes_read]).map_err(ReadError::Decode)?;
+            self.bytes_received(&buf[..bytes_read])
+                .map_err(ReadError::Decode)?;
         }
         self.end().map_err(ReadError::Decode)
     }
@@ -308,7 +338,9 @@ pub trait Encoder: Sized {
         while !self.encoded_chunk().is_empty() {
             let chunk = self.encoded_chunk();
             if chunk.len() > buf.len() {
-                return Err(error::BufferOverflow { bytes_past_end: chunk.len() - buf.len()});
+                return Err(error::BufferOverflow {
+                    bytes_past_end: chunk.len() - buf.len(),
+                });
             }
             buf[..chunk.len()].copy_from_slice(chunk);
             *buf = &mut core::mem::take(buf)[chunk.len()..];
@@ -336,7 +368,10 @@ pub trait Encoder: Sized {
 
     /// Writes all encoded bytes to the `std` writer.
     #[cfg(feature = "lgio")]
-    fn write_all_sync_lgio<W: lgio::BufWrite>(mut self, mut writer: W) -> Result<(), W::WriteError> {
+    fn write_all_sync_lgio<W: lgio::BufWrite>(
+        mut self,
+        mut writer: W,
+    ) -> Result<(), W::WriteError> {
         self.try_for_each_sync(|chunk| writer.write_all(chunk))
     }
 
@@ -344,7 +379,10 @@ pub trait Encoder: Sized {
     ///
     /// The returned future resolves to `std::io::Result<()>`.
     #[cfg(feature = "tokio")]
-    fn write_all_tokio<W: tokio::io::AsyncWrite + BufWrite>(self, writer: W) -> future::TokioEncodeFuture<W, Self> {
+    fn write_all_tokio<W: tokio::io::AsyncWrite + BufWrite>(
+        self,
+        writer: W,
+    ) -> future::TokioEncodeFuture<W, Self> {
         future::TokioEncodeFuture::new(writer, self)
     }
 
@@ -352,7 +390,10 @@ pub trait Encoder: Sized {
     ///
     /// The returned future resolves to `std::io::Result<()>`.
     #[cfg(feature = "async-std")]
-    fn write_all_async_std<W: async_std::io::Write + BufWrite>(self, writer: W) -> future::AsyncStdEncodeFuture<W, Self> {
+    fn write_all_async_std<W: async_std::io::Write + BufWrite>(
+        self,
+        writer: W,
+    ) -> future::AsyncStdEncodeFuture<W, Self> {
         future::AsyncStdEncodeFuture::new(writer, self)
     }
 
@@ -360,7 +401,10 @@ pub trait Encoder: Sized {
     ///
     /// The returned future resolves to `std::io::Result<()>`.
     #[cfg(feature = "futures_0_3")]
-    fn write_all_futures_0_3<W: futures_io_0_3::AsyncWrite + BufWrite>(self, writer: W) -> future::Futures0Dot3EncodeFuture<W, Self> {
+    fn write_all_futures_0_3<W: futures_io_0_3::AsyncWrite + BufWrite>(
+        self,
+        writer: W,
+    ) -> future::Futures0Dot3EncodeFuture<W, Self> {
         future::Futures0Dot3EncodeFuture::new(writer, self)
     }
 
@@ -373,7 +417,10 @@ pub trait Encoder: Sized {
     /// This will also save memory if the second encoder is larger than `F`.
     ///
     /// Note: `F` needs to be `FnMut` instead of `FnOnce` to correctly handle panics.
-    fn then<E: Encoder, F: FnMut() -> E>(self, second_encoder_constructor: F) -> encoders::combinators::Then<Self, E, F> {
+    fn then<E: Encoder, F: FnMut() -> E>(
+        self,
+        second_encoder_constructor: F,
+    ) -> encoders::combinators::Then<Self, E, F> {
         encoders::combinators::Then::new(self, second_encoder_constructor)
     }
 
@@ -391,10 +438,20 @@ pub trait Encoder: Sized {
 ///
 /// The trait should be implemented for types which don't incur a (significant) performance penalty
 /// when writing short chunks of data.
-#[cfg(any(feature = "std", feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
+#[cfg(any(
+    feature = "std",
+    feature = "tokio",
+    feature = "async-std",
+    feature = "futures_0_3"
+))]
 pub trait BufWrite {}
 
-#[cfg(any(feature = "std", feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
+#[cfg(any(
+    feature = "std",
+    feature = "tokio",
+    feature = "async-std",
+    feature = "futures_0_3"
+))]
 impl<'a, T: BufWrite> BufWrite for &mut T {}
 
 #[cfg(feature = "std")]
@@ -422,17 +479,23 @@ pin_project_lite::pin_project! {
 ///
 /// Downstream users may use this to satisfy the constraint of `write_` methods when they
 /// themselves can't implement `BufWrite` for types from external crates due to orphan rules.
-#[cfg(all(feature = "std", not(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))))]
+#[cfg(all(
+    feature = "std",
+    not(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))
+))]
 pub struct AssumeBuffered<T> {
     inner: T,
 }
 
-#[cfg(any(feature = "std", feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
+#[cfg(any(
+    feature = "std",
+    feature = "tokio",
+    feature = "async-std",
+    feature = "futures_0_3"
+))]
 impl<T> AssumeBuffered<T> {
     pub fn new(writer: T) -> Self {
-        AssumeBuffered {
-            inner: writer,
-        }
+        AssumeBuffered { inner: writer }
     }
 
     pub fn inner(&self) -> &T {
@@ -448,7 +511,12 @@ impl<T> AssumeBuffered<T> {
     }
 }
 
-#[cfg(any(feature = "std", feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
+#[cfg(any(
+    feature = "std",
+    feature = "tokio",
+    feature = "async-std",
+    feature = "futures_0_3"
+))]
 impl<T> BufWrite for AssumeBuffered<T> {}
 
 #[cfg(feature = "std")]
@@ -464,30 +532,50 @@ impl<T: std::io::Write> std::io::Write for AssumeBuffered<T> {
 
 #[cfg(feature = "async-std")]
 impl<T: async_std::io::Write> async_std::io::Write for AssumeBuffered<T> {
-    fn poll_write(self: Pin<&mut Self>, ctx: &mut core::task::Context, bytes: &[u8]) -> core::task::Poll<std::io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        ctx: &mut core::task::Context,
+        bytes: &[u8],
+    ) -> core::task::Poll<std::io::Result<usize>> {
         self.project().inner.poll_write(ctx, bytes)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, ctx: &mut core::task::Context) -> core::task::Poll<std::io::Result<()>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<std::io::Result<()>> {
         self.project().inner.poll_flush(ctx)
     }
 
-    fn poll_close(self: Pin<&mut Self>, ctx: &mut core::task::Context) -> core::task::Poll<std::io::Result<()>> {
+    fn poll_close(
+        self: Pin<&mut Self>,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<std::io::Result<()>> {
         self.project().inner.poll_close(ctx)
     }
 }
 
 #[cfg(feature = "tokio")]
 impl<T: tokio::io::AsyncWrite> tokio::io::AsyncWrite for AssumeBuffered<T> {
-    fn poll_write(self: Pin<&mut Self>, ctx: &mut core::task::Context, bytes: &[u8]) -> core::task::Poll<std::io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        ctx: &mut core::task::Context,
+        bytes: &[u8],
+    ) -> core::task::Poll<std::io::Result<usize>> {
         self.project().inner.poll_write(ctx, bytes)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, ctx: &mut core::task::Context) -> core::task::Poll<std::io::Result<()>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<std::io::Result<()>> {
         self.project().inner.poll_flush(ctx)
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, ctx: &mut core::task::Context) -> core::task::Poll<std::io::Result<()>> {
+    fn poll_shutdown(
+        self: Pin<&mut Self>,
+        ctx: &mut core::task::Context,
+    ) -> core::task::Poll<std::io::Result<()>> {
         self.project().inner.poll_shutdown(ctx)
     }
 }
@@ -504,10 +592,7 @@ pub struct EncoderPositionTracker<Enc> {
 
 impl<Enc: Encoder> EncoderPositionTracker<Enc> {
     fn new(encoder: Enc) -> Self {
-        EncoderPositionTracker {
-            encoder,
-            pos: 0,
-        }
+        EncoderPositionTracker { encoder, pos: 0 }
     }
 
     /// Returns an unprocessed chunk of encoded data.
@@ -565,14 +650,17 @@ impl<Enc: Encoder> EncoderPositionTracker<Enc> {
     /// signal).
     #[cfg(feature = "std")]
     pub fn write_all<W: std::io::Write>(&mut self, writer: &mut W) -> std::io::Result<()> {
-        while self.write_once(writer)? != 0 { }
+        while self.write_once(writer)? != 0 {}
         Ok(())
     }
 }
 
 /// Synchronously decodes a value from the given reader using a custom decoder.
 #[cfg(feature = "std")]
-pub fn decode_sync_with<D: Decoder, R: std::io::BufRead + ?Sized>(reader: &mut R, mut decoder: D) -> Result<D::Value, ReadError<D::Error>> {
+pub fn decode_sync_with<D: Decoder, R: std::io::BufRead + ?Sized>(
+    reader: &mut R,
+    mut decoder: D,
+) -> Result<D::Value, ReadError<D::Error>> {
     loop {
         let buf = match reader.fill_buf() {
             Ok(buf) => buf,
@@ -601,19 +689,31 @@ pub fn decode_sync_with<D: Decoder, R: std::io::BufRead + ?Sized>(reader: &mut R
 /// The function is only provided for compatibility with poorly-designed APIs that cannot use
 /// `BufRead` for some reason.
 #[cfg(feature = "std")]
-pub fn decode_sync_unbuffered_with<const BUF_LEN: usize, D: KnownMinLenDecoder, R: std::io::Read + ?Sized>(reader: &mut R, decoder: D) -> Result<D::Value, ReadError<D::Error>> {
+pub fn decode_sync_unbuffered_with<
+    const BUF_LEN: usize,
+    D: KnownMinLenDecoder,
+    R: std::io::Read + ?Sized,
+>(
+    reader: &mut R,
+    decoder: D,
+) -> Result<D::Value, ReadError<D::Error>> {
     decoder.sync_decode_with_zeroed_buffer::<BUF_LEN, _, _>(move |buf| reader.read(buf))
 }
 
 /// Synchronously decodes a value from the given reader.
 #[cfg(feature = "std")]
-pub fn decode_sync<D: Decoder + Default>(reader: &mut (impl std::io::BufRead + ?Sized)) -> Result<D::Value, ReadError<D::Error>> {
+pub fn decode_sync<D: Decoder + Default>(
+    reader: &mut (impl std::io::BufRead + ?Sized),
+) -> Result<D::Value, ReadError<D::Error>> {
     decode_sync_with(reader, D::default())
 }
 
 /// Synchronously decodes a value from the given reader using a custom decoder.
 #[cfg(feature = "lgio")]
-pub fn decode_sync_lgio_with<D: Decoder, R: lgio::BufRead + ?Sized>(reader: &mut R, mut decoder: D) -> Result<D::Value, ReadError<D::Error, R::ReadError>> {
+pub fn decode_sync_lgio_with<D: Decoder, R: lgio::BufRead + ?Sized>(
+    reader: &mut R,
+    mut decoder: D,
+) -> Result<D::Value, ReadError<D::Error, R::ReadError>> {
     loop {
         let buf = reader.fill_buf().map_err(ReadError::Read)?;
         if buf.is_empty() {
@@ -630,13 +730,18 @@ pub fn decode_sync_lgio_with<D: Decoder, R: lgio::BufRead + ?Sized>(reader: &mut
 
 /// Synchronously decodes a value from the given reader.
 #[cfg(feature = "lgio")]
-pub fn decode_sync_lgio<D: Decoder + Default, R: lgio::BufRead + ?Sized>(reader: &mut R) -> Result<D::Value, ReadError<D::Error, R::ReadError>> {
+pub fn decode_sync_lgio<D: Decoder + Default, R: lgio::BufRead + ?Sized>(
+    reader: &mut R,
+) -> Result<D::Value, ReadError<D::Error, R::ReadError>> {
     decode_sync_lgio_with(reader, D::default())
 }
 
 /// Asynchronously decodes a value from the given reader using a custom decoder.
 #[cfg(feature = "futures_0_3")]
-pub async fn decode_futures_0_3_with<D: Decoder, R: futures_io_0_3::AsyncBufRead>(reader: R, decoder: D) -> Result<D::Value, ReadError<D::Error>> {
+pub async fn decode_futures_0_3_with<D: Decoder, R: futures_io_0_3::AsyncBufRead>(
+    reader: R,
+    decoder: D,
+) -> Result<D::Value, ReadError<D::Error>> {
     use futures_io_0_3::AsyncBufRead;
 
     future::DecodeFuture {
@@ -650,13 +755,18 @@ pub async fn decode_futures_0_3_with<D: Decoder, R: futures_io_0_3::AsyncBufRead
 
 /// Asynchronously decodes a value from the given reader.
 #[cfg(feature = "futures_0_3")]
-pub async fn decode_futures_0_3<D: Decoder + Default>(reader: impl futures_io_0_3::AsyncBufRead) -> Result<D::Value, ReadError<D::Error>> {
+pub async fn decode_futures_0_3<D: Decoder + Default>(
+    reader: impl futures_io_0_3::AsyncBufRead,
+) -> Result<D::Value, ReadError<D::Error>> {
     decode_futures_0_3_with(reader, D::default()).await
 }
 
 /// Asynchronously decodes a value from the given reader using a custom decoder.
 #[cfg(feature = "tokio")]
-pub async fn decode_tokio_with<D: Decoder, R: tokio::io::AsyncBufRead>(reader: R, decoder: D) -> Result<D::Value, ReadError<D::Error>> {
+pub async fn decode_tokio_with<D: Decoder, R: tokio::io::AsyncBufRead>(
+    reader: R,
+    decoder: D,
+) -> Result<D::Value, ReadError<D::Error>> {
     use tokio::io::AsyncBufRead;
 
     future::DecodeFuture {
@@ -670,13 +780,18 @@ pub async fn decode_tokio_with<D: Decoder, R: tokio::io::AsyncBufRead>(reader: R
 
 /// Asynchronously decodes a value from the given reader.
 #[cfg(feature = "tokio")]
-pub async fn decode_tokio<D: Decoder + Default>(reader: impl tokio::io::AsyncBufRead) -> Result<D::Value, ReadError<D::Error>> {
+pub async fn decode_tokio<D: Decoder + Default>(
+    reader: impl tokio::io::AsyncBufRead,
+) -> Result<D::Value, ReadError<D::Error>> {
     decode_tokio_with(reader, D::default()).await
 }
 
 /// Asynchronously decodes a value from the given reader using a custom decoder.
 #[cfg(feature = "async-std")]
-pub async fn decode_async_std_with<D: Decoder, R: async_std::io::BufRead>(reader: R, decoder: D) -> Result<D::Value, ReadError<D::Error>> {
+pub async fn decode_async_std_with<D: Decoder, R: async_std::io::BufRead>(
+    reader: R,
+    decoder: D,
+) -> Result<D::Value, ReadError<D::Error>> {
     use async_std::io::BufRead as AsyncBufRead;
 
     future::DecodeFuture {
@@ -690,11 +805,16 @@ pub async fn decode_async_std_with<D: Decoder, R: async_std::io::BufRead>(reader
 
 /// Asynchronously decodes a value from the given reader.
 #[cfg(feature = "async-std")]
-pub async fn decode_async_std<D: Decoder + Default>(reader: impl async_std::io::BufRead) -> Result<D::Value, ReadError<D::Error>> {
+pub async fn decode_async_std<D: Decoder + Default>(
+    reader: impl async_std::io::BufRead,
+) -> Result<D::Value, ReadError<D::Error>> {
     decode_async_std_with(reader, D::default()).await
 }
 
-pub async fn encode_for_each_async<F: core::future::Future<Output = ()>>(mut encoder: impl Encoder, mut f: impl FnMut(&[u8]) -> F) {
+pub async fn encode_for_each_async<F: core::future::Future<Output = ()>>(
+    mut encoder: impl Encoder,
+    mut f: impl FnMut(&[u8]) -> F,
+) {
     while !encoder.encoded_chunk().is_empty() {
         f(encoder.encoded_chunk()).await;
         if !encoder.next() {
@@ -703,7 +823,10 @@ pub async fn encode_for_each_async<F: core::future::Future<Output = ()>>(mut enc
     }
 }
 
-pub async fn try_encode_for_each_async<E, F: core::future::Future<Output = Result<(), E>>>(mut encoder: impl Encoder, mut f: impl FnMut(&[u8]) -> F) -> Result<(), E> {
+pub async fn try_encode_for_each_async<E, F: core::future::Future<Output = Result<(), E>>>(
+    mut encoder: impl Encoder,
+    mut f: impl FnMut(&[u8]) -> F,
+) -> Result<(), E> {
     while !encoder.encoded_chunk().is_empty() {
         f(encoder.encoded_chunk()).await?;
         if !encoder.next() {
@@ -741,7 +864,11 @@ pub enum ReadError<Decode, Read = std::io::Error> {
 
 impl<D, R> ReadError<D, R> {
     /// Converts the inner errors to another type `E`.
-    pub fn convert_either<E>(self) -> E where D: Into<E>, R: Into<E> {
+    pub fn convert_either<E>(self) -> E
+    where
+        D: Into<E>,
+        R: Into<E>,
+    {
         match self {
             ReadError::Read(error) => error.into(),
             ReadError::Decode(error) => error.into(),
@@ -751,7 +878,10 @@ impl<D, R> ReadError<D, R> {
     /// Converts the read error using a closure.
     ///
     /// This is analogous to [`Result::map`]/[`Result::map_err`] and leaves `Decode` intact.
-    pub fn map_read<E, F>(self, map: F) -> ReadError<D, E> where F: FnOnce(R) -> E {
+    pub fn map_read<E, F>(self, map: F) -> ReadError<D, E>
+    where
+        F: FnOnce(R) -> E,
+    {
         match self {
             ReadError::Read(error) => ReadError::Read(map(error)),
             ReadError::Decode(error) => ReadError::Decode(error),
@@ -761,7 +891,10 @@ impl<D, R> ReadError<D, R> {
     /// Converts the decode error using a closure.
     ///
     /// This is analogous to [`Result::map`]/[`Result::map_err`] and leaves `Read` intact.
-    pub fn map_decode<E, F>(self, map: F) -> ReadError<E, R> where F: FnOnce(D) -> E {
+    pub fn map_decode<E, F>(self, map: F) -> ReadError<E, R>
+    where
+        F: FnOnce(D) -> E,
+    {
         match self {
             ReadError::Read(error) => ReadError::Read(error),
             ReadError::Decode(error) => ReadError::Decode(map(error)),
@@ -789,7 +922,9 @@ impl<E> ReadError<core::convert::Infallible, E> {
     }
 }
 
-impl From<ReadError<core::convert::Infallible, core::convert::Infallible>> for core::convert::Infallible {
+impl From<ReadError<core::convert::Infallible, core::convert::Infallible>>
+    for core::convert::Infallible
+{
     fn from(error: ReadError<core::convert::Infallible, core::convert::Infallible>) -> Self {
         match error {
             ReadError::Read(error) => error,
@@ -799,7 +934,9 @@ impl From<ReadError<core::convert::Infallible, core::convert::Infallible>> for c
 }
 
 #[cfg(feature = "std")]
-impl<E: std::error::Error + Send + Sync + 'static> From<ReadError<E, std::io::Error>> for std::io::Error {
+impl<E: std::error::Error + Send + Sync + 'static> From<ReadError<E, std::io::Error>>
+    for std::io::Error
+{
     fn from(error: ReadError<E, std::io::Error>) -> Self {
         use std::io::ErrorKind;
 
@@ -820,7 +957,9 @@ impl<D, R> fmt::Display for ReadError<D, R> {
 }
 
 #[cfg(feature = "std")]
-impl<D: std::error::Error + 'static, R: std::error::Error + 'static> std::error::Error for ReadError<D, R> {
+impl<D: std::error::Error + 'static, R: std::error::Error + 'static> std::error::Error
+    for ReadError<D, R>
+{
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             ReadError::Read(error) => Some(error),
