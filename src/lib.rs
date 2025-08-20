@@ -292,14 +292,21 @@ pub trait Encoder: Sized {
     }
 
     /// Writes all encoded bytes to the `std` writer.
+    /// 
+    /// **Performance Note**: This method writes data in small chunks. For optimal performance
+    /// with unbuffered writers (like `File` or `TcpStream`), consider wrapping your writer
+    /// with `std::io::BufWriter` first.
     #[cfg(feature = "std")]
-    fn write_all_sync<W: std::io::Write + BufWrite>(self, mut writer: W) -> std::io::Result<()> {
+    fn write_all_sync<W: std::io::Write>(self, mut writer: W) -> std::io::Result<()> {
         self.try_for_each_sync(|chunk| writer.write_all(chunk))
     }
 
-    /// Writes all encoded bytes to the `std` writer.
+    /// Writes all encoded bytes to the `lgio` writer.
+    /// 
+    /// **Performance Note**: This method writes data in small chunks. For optimal performance
+    /// with unbuffered writers, consider wrapping your writer with a buffered writer first.
     #[cfg(feature = "lgio")]
-    fn write_all_sync_lgio<W: lgio::BufWrite>(
+    fn write_all_sync_lgio<W: lgio::Write>(
         mut self,
         mut writer: W,
     ) -> Result<(), W::WriteError> {
@@ -307,10 +314,13 @@ pub trait Encoder: Sized {
     }
 
     /// Writes all encoded bytes to the `tokio` async writer.
+    /// 
+    /// **Performance Note**: This method writes data in small chunks. For optimal performance
+    /// with unbuffered writers, consider wrapping your writer with `tokio::io::BufWriter` first.
     ///
     /// The returned future resolves to `std::io::Result<()>`.
     #[cfg(feature = "tokio")]
-    fn write_all_tokio<W: tokio::io::AsyncWrite + BufWrite>(
+    fn write_all_tokio<W: tokio::io::AsyncWrite>(
         self,
         writer: W,
     ) -> future::TokioEncodeFuture<W, Self> {
@@ -318,10 +328,13 @@ pub trait Encoder: Sized {
     }
 
     /// Writes all encoded bytes to the `async-std` async writer.
+    /// 
+    /// **Performance Note**: This method writes data in small chunks. For optimal performance
+    /// with unbuffered writers, consider wrapping your writer with `async_std::io::BufWriter` first.
     ///
     /// The returned future resolves to `std::io::Result<()>`.
     #[cfg(feature = "async-std")]
-    fn write_all_async_std<W: async_std::io::Write + BufWrite>(
+    fn write_all_async_std<W: async_std::io::Write>(
         self,
         writer: W,
     ) -> future::AsyncStdEncodeFuture<W, Self> {
@@ -329,10 +342,13 @@ pub trait Encoder: Sized {
     }
 
     /// Writes all encoded bytes to the `futures` 0.3 async writer.
+    /// 
+    /// **Performance Note**: This method writes data in small chunks. For optimal performance
+    /// with unbuffered writers, consider using a buffered writer first.
     ///
     /// The returned future resolves to `std::io::Result<()>`.
     #[cfg(feature = "futures_0_3")]
-    fn write_all_futures_0_3<W: futures_io_0_3::AsyncWrite + BufWrite>(
+    fn write_all_futures_0_3<W: futures_io_0_3::AsyncWrite>(
         self,
         writer: W,
     ) -> future::Futures0Dot3EncodeFuture<W, Self> {
@@ -362,152 +378,6 @@ pub trait Encoder: Sized {
     /// as well.
     fn chain<T: Encoder>(self, second_encoder: T) -> encoders::combinators::Chain<Self, T> {
         encoders::combinators::Chain::new(self, second_encoder)
-    }
-}
-
-/// Marker trait for writers that are either buffered or don't incur the cost of context switch.
-///
-/// The trait should be implemented for types which don't incur a (significant) performance penalty
-/// when writing short chunks of data.
-#[cfg(any(
-    feature = "std",
-    feature = "tokio",
-    feature = "async-std",
-    feature = "futures_0_3"
-))]
-pub trait BufWrite {}
-
-#[cfg(any(
-    feature = "std",
-    feature = "tokio",
-    feature = "async-std",
-    feature = "futures_0_3"
-))]
-impl<'a, T: BufWrite> BufWrite for &mut T {}
-
-#[cfg(feature = "std")]
-impl<T: std::io::Write> BufWrite for std::io::BufWriter<T> {}
-
-#[cfg(feature = "tokio")]
-impl<T: tokio::io::AsyncWrite> BufWrite for tokio::io::BufWriter<T> {}
-
-#[cfg(feature = "async-std")]
-impl<T: async_std::io::Write> BufWrite for async_std::io::BufWriter<T> {}
-
-#[cfg(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
-pin_project_lite::pin_project! {
-    /// Wrapper for external types that are known to be buffered.
-    ///
-    /// Downstream users may use this to satisfy the constraint of `write_` methods when they
-    /// themselves can't implement `BufWrite` for types from external crates due to orphan rules.
-    pub struct AssumeBuffered<T> {
-        #[pin]
-        inner: T
-    }
-}
-
-/// Wrapper for external types that are known to be buffered.
-///
-/// Downstream users may use this to satisfy the constraint of `write_` methods when they
-/// themselves can't implement `BufWrite` for types from external crates due to orphan rules.
-#[cfg(all(
-    feature = "std",
-    not(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))
-))]
-pub struct AssumeBuffered<T> {
-    inner: T,
-}
-
-#[cfg(any(
-    feature = "std",
-    feature = "tokio",
-    feature = "async-std",
-    feature = "futures_0_3"
-))]
-impl<T> AssumeBuffered<T> {
-    pub fn new(writer: T) -> Self {
-        AssumeBuffered { inner: writer }
-    }
-
-    pub fn inner(&self) -> &T {
-        &self.inner
-    }
-
-    pub fn inner_mut(&mut self) -> &mut T {
-        &mut self.inner
-    }
-
-    pub fn into_inner(self) -> T {
-        self.inner
-    }
-}
-
-#[cfg(any(
-    feature = "std",
-    feature = "tokio",
-    feature = "async-std",
-    feature = "futures_0_3"
-))]
-impl<T> BufWrite for AssumeBuffered<T> {}
-
-#[cfg(feature = "std")]
-impl<T: std::io::Write> std::io::Write for AssumeBuffered<T> {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.inner.write(bytes)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.inner.flush()
-    }
-}
-
-#[cfg(feature = "async-std")]
-impl<T: async_std::io::Write> async_std::io::Write for AssumeBuffered<T> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        ctx: &mut core::task::Context,
-        bytes: &[u8],
-    ) -> core::task::Poll<std::io::Result<usize>> {
-        self.project().inner.poll_write(ctx, bytes)
-    }
-
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        ctx: &mut core::task::Context,
-    ) -> core::task::Poll<std::io::Result<()>> {
-        self.project().inner.poll_flush(ctx)
-    }
-
-    fn poll_close(
-        self: Pin<&mut Self>,
-        ctx: &mut core::task::Context,
-    ) -> core::task::Poll<std::io::Result<()>> {
-        self.project().inner.poll_close(ctx)
-    }
-}
-
-#[cfg(feature = "tokio")]
-impl<T: tokio::io::AsyncWrite> tokio::io::AsyncWrite for AssumeBuffered<T> {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        ctx: &mut core::task::Context,
-        bytes: &[u8],
-    ) -> core::task::Poll<std::io::Result<usize>> {
-        self.project().inner.poll_write(ctx, bytes)
-    }
-
-    fn poll_flush(
-        self: Pin<&mut Self>,
-        ctx: &mut core::task::Context,
-    ) -> core::task::Poll<std::io::Result<()>> {
-        self.project().inner.poll_flush(ctx)
-    }
-
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        ctx: &mut core::task::Context,
-    ) -> core::task::Poll<std::io::Result<()>> {
-        self.project().inner.poll_shutdown(ctx)
     }
 }
 
