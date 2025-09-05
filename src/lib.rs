@@ -42,6 +42,33 @@ pub mod int;
 
 use core::fmt;
 
+/// A sum type representing a value that can be one of two types.
+///
+/// This is used for error handling in combinators where an error
+/// can come from either the first operation (Left) or the second operation (Right).
+/// Allows for automatic error type creation by combining the sub errors into one,
+/// a generic error combiner. But this places a burden on the caller to then match
+/// against the two (and possibly nested) possiblities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Either<L, R> {
+    /// The left variant
+    Left(L),
+    /// The right variant
+    Right(R),
+}
+
+impl<L, R> Either<L, R> {
+    /// Create a Left variant
+    pub const fn left(value: L) -> Self {
+        Either::Left(value)
+    }
+
+    /// Create a Right variant  
+    pub const fn right(value: R) -> Self {
+        Either::Right(value)
+    }
+}
+
 /// Represents types responsible for decoding bytes pushed into it.
 ///
 /// The types implementing this trait act like state machines (similar to futures) but instead of
@@ -288,7 +315,7 @@ pub trait Encoder: Sized {
     }
 
     /// Writes all encoded bytes to the `std` writer.
-    /// 
+    ///
     /// **Performance Note**: This method writes data in small chunks. For optimal performance
     /// with unbuffered writers (like `File` or `TcpStream`), consider wrapping your writer
     /// with `std::io::BufWriter` first.
@@ -297,10 +324,8 @@ pub trait Encoder: Sized {
         self.try_for_each_sync(|chunk| writer.write_all(chunk))
     }
 
-
-
     /// Writes all encoded bytes to the `tokio` async writer.
-    /// 
+    ///
     /// **Performance Note**: This method writes data in small chunks. For optimal performance
     /// with unbuffered writers, consider wrapping your writer with `tokio::io::BufWriter` first.
     ///
@@ -313,10 +338,8 @@ pub trait Encoder: Sized {
         future::TokioEncodeFuture::new(writer, self)
     }
 
-
-
     /// Writes all encoded bytes to the `futures` 0.3 async writer.
-    /// 
+    ///
     /// **Performance Note**: This method writes data in small chunks. For optimal performance
     /// with unbuffered writers, consider using a buffered writer first.
     ///
@@ -483,8 +506,6 @@ pub fn decode_sync<D: Decoder + Default>(
     decode_sync_with(reader, D::default())
 }
 
-
-
 /// Asynchronously decodes a value from the given reader using a custom decoder.
 #[cfg(feature = "futures_0_3")]
 pub async fn decode_futures_0_3_with<D: Decoder, R: futures_io_0_3::AsyncBufRead>(
@@ -534,8 +555,6 @@ pub async fn decode_tokio<D: Decoder + Default>(
 ) -> Result<D::Value, ReadError<D::Error>> {
     decode_tokio_with(reader, D::default()).await
 }
-
-
 
 pub async fn encode_for_each_async<F: core::future::Future<Output = ()>>(
     mut encoder: impl Encoder,

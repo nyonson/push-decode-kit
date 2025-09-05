@@ -1,6 +1,5 @@
 use core::fmt;
-use either::Either;
-use crate::{Decoder, KnownMinLenDecoder};
+use crate::{Decoder, Either, KnownMinLenDecoder};
 
 pub struct Chain<First: Decoder, Second: Decoder>(State<First, Second>);
 

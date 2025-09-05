@@ -1,5 +1,4 @@
-use either::Either;
-use crate::{Decoder, KnownMinLenDecoder};
+use crate::{Decoder, Either, KnownMinLenDecoder};
 
 pub type ThenFnPtr<First, Second> = Then<First, Second, fn(<First as Decoder>::Value) -> Second>;
 

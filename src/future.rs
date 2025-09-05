@@ -47,8 +47,7 @@ macro_rules! impl_encoder {
 #[cfg(feature = "tokio")]
 impl_encoder!(TokioEncodeFuture, actual_tokio::io::AsyncWrite, TokioPollWrite);
 
-#[cfg(feature = "async-std")]
-impl_encoder!(AsyncStdEncodeFuture, actual_async_std::io::Write, AsyncStdPollWrite);
+// async-std support was removed for educational simplification
 
 #[cfg(feature = "futures_0_3")]
 impl_encoder!(Futures0Dot3EncodeFuture, futures_io_0_3::AsyncWrite, Futures0Dot3PollWrite);
