@@ -7,15 +7,13 @@
 //! The main advantage of this approach is that it's IO-agnostic, which implies both
 //! **`async`-agnostic** and `no_std`. You can use the same code to deserialize from sync
 //! and `async` readers and only need a tiny piece of code to connect the reader to a decoder. This
-//! piece of code is provided by this crate for `std`, [`lgio`] (usable with `no_std`), `tokio`, `futures` and `async-std`.
+//! piece of code is provided by this crate for `std`, `tokio`, and `futures`.
 //!
 //! # Features
 //!
 //! * `std` - enables integration with the standard library - it's IO and error traits
 //! * `alloc` - enables integration with the standard `alloc` crate
-//! * `lgio` - connects decoders to lgio IO.
 //! * `tokio` - connects decoders to Tokio IO.
-//! * `async-std` - connects decoders to async-std IO.
 //! * `futures_0_3` - connects decoders to futures 0.3.x IO
 
 #![no_std]
@@ -29,18 +27,16 @@ extern crate std;
 #[cfg_attr(test, macro_use)]
 extern crate alloc;
 
-#[cfg(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
+#[cfg(any(feature = "tokio", feature = "futures_0_3"))]
 use core::pin::Pin;
 
-#[cfg(feature = "async-std")]
-use actual_async_std as async_std;
 #[cfg(feature = "tokio")]
 use actual_tokio as tokio;
 
 pub mod decoders;
 pub mod encoders;
 pub mod error;
-#[cfg(any(feature = "tokio", feature = "async-std", feature = "futures_0_3"))]
+#[cfg(any(feature = "tokio", feature = "futures_0_3"))]
 pub mod future;
 pub mod int;
 
@@ -301,17 +297,7 @@ pub trait Encoder: Sized {
         self.try_for_each_sync(|chunk| writer.write_all(chunk))
     }
 
-    /// Writes all encoded bytes to the `lgio` writer.
-    /// 
-    /// **Performance Note**: This method writes data in small chunks. For optimal performance
-    /// with unbuffered writers, consider wrapping your writer with a buffered writer first.
-    #[cfg(feature = "lgio")]
-    fn write_all_sync_lgio<W: lgio::Write>(
-        mut self,
-        mut writer: W,
-    ) -> Result<(), W::WriteError> {
-        self.try_for_each_sync(|chunk| writer.write_all(chunk))
-    }
+
 
     /// Writes all encoded bytes to the `tokio` async writer.
     /// 
@@ -327,19 +313,7 @@ pub trait Encoder: Sized {
         future::TokioEncodeFuture::new(writer, self)
     }
 
-    /// Writes all encoded bytes to the `async-std` async writer.
-    /// 
-    /// **Performance Note**: This method writes data in small chunks. For optimal performance
-    /// with unbuffered writers, consider wrapping your writer with `async_std::io::BufWriter` first.
-    ///
-    /// The returned future resolves to `std::io::Result<()>`.
-    #[cfg(feature = "async-std")]
-    fn write_all_async_std<W: async_std::io::Write>(
-        self,
-        writer: W,
-    ) -> future::AsyncStdEncodeFuture<W, Self> {
-        future::AsyncStdEncodeFuture::new(writer, self)
-    }
+
 
     /// Writes all encoded bytes to the `futures` 0.3 async writer.
     /// 
@@ -509,33 +483,7 @@ pub fn decode_sync<D: Decoder + Default>(
     decode_sync_with(reader, D::default())
 }
 
-/// Synchronously decodes a value from the given reader using a custom decoder.
-#[cfg(feature = "lgio")]
-pub fn decode_sync_lgio_with<D: Decoder, R: lgio::BufRead + ?Sized>(
-    reader: &mut R,
-    mut decoder: D,
-) -> Result<D::Value, ReadError<D::Error, R::ReadError>> {
-    loop {
-        let buf = reader.fill_buf().map_err(ReadError::Read)?;
-        if buf.is_empty() {
-            break decoder.end().map_err(ReadError::Decode);
-        }
-        let num = decoder.bytes_received(buf).map_err(ReadError::Decode)?;
-        let buf_len = buf.len();
-        reader.consume(num);
-        if num < buf_len {
-            break decoder.end().map_err(ReadError::Decode);
-        }
-    }
-}
 
-/// Synchronously decodes a value from the given reader.
-#[cfg(feature = "lgio")]
-pub fn decode_sync_lgio<D: Decoder + Default, R: lgio::BufRead + ?Sized>(
-    reader: &mut R,
-) -> Result<D::Value, ReadError<D::Error, R::ReadError>> {
-    decode_sync_lgio_with(reader, D::default())
-}
 
 /// Asynchronously decodes a value from the given reader using a custom decoder.
 #[cfg(feature = "futures_0_3")]
@@ -587,30 +535,7 @@ pub async fn decode_tokio<D: Decoder + Default>(
     decode_tokio_with(reader, D::default()).await
 }
 
-/// Asynchronously decodes a value from the given reader using a custom decoder.
-#[cfg(feature = "async-std")]
-pub async fn decode_async_std_with<D: Decoder, R: async_std::io::BufRead>(
-    reader: R,
-    decoder: D,
-) -> Result<D::Value, ReadError<D::Error>> {
-    use async_std::io::BufRead as AsyncBufRead;
 
-    future::DecodeFuture {
-        reader,
-        poll_fn: <R as AsyncBufRead>::poll_fill_buf,
-        consume_fn: <R as AsyncBufRead>::consume,
-        decoder: Some(decoder),
-    }
-    .await
-}
-
-/// Asynchronously decodes a value from the given reader.
-#[cfg(feature = "async-std")]
-pub async fn decode_async_std<D: Decoder + Default>(
-    reader: impl async_std::io::BufRead,
-) -> Result<D::Value, ReadError<D::Error>> {
-    decode_async_std_with(reader, D::default()).await
-}
 
 pub async fn encode_for_each_async<F: core::future::Future<Output = ()>>(
     mut encoder: impl Encoder,
